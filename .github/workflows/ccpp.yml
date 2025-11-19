@@ -28,40 +28,22 @@ jobs:
         run: make
         working-directory: media-server
 
-      - name: Build static + shared library
+      - name: Build libmpeg.so
         run: |
           cd media-server/libmpeg
           make clean
-          make -j$(nproc)           # 先编译静态库（默认）
-          make shared=1 -j$(nproc)  # 再强制编译动态库
-
-      - name: List all generated libraries
-        run: |
-          echo "=== 最终生成的库文件 ==="
-          find media-server/libmpeg -name "libmpeg.*" | sort
-          echo ""
-          echo "详细大小："
-          ls -lh media-server/libmpeg/debug.ubuntu24.04-linux64/libmpeg.*
+          make -j$(nproc)
+          make shared=1 -j$(nproc)       # 这一行就生成了 .so
           
-          # 可选：上传方便下载
-          mkdir -p artifacts
-          cp media-server/libmpeg/debug.ubuntu24.04-linux64/libmpeg.* artifacts/ || true
-
-      - name: Upload libraries as artifact
+      - name: Package both .a and .so
+        run: |
+          mkdir -p upload/libmpeg
+          cp media-server/libmpeg/debug.ubuntu24.04-linux64/libmpeg.* upload/libmpeg/
+          cp -r media-server/libmpeg/include upload/libmpeg/
+          
+      - name: Upload complete package (含 .so)
         uses: actions/upload-artifact@v4
         with:
-          name: libmpeg-libraries
-          path: artifacts/
-          
-      - name: List generated files（推荐方式）
-        run: |
-          echo "=== 当前工作目录结构 ==="
-          pwd
-          ls -R
-          
-          echo "=== 只看 libmpeg 目录下的所有文件（包含子目录）==="
-          find media-server/libmpeg -type f -print | sort
-          
-          echo "=== 只看编译生成的 .a/.so/.o 文件 ==="
-          find media-server -name "*.a" -o -name "*.so" -o -name "*.o" | sort
-        working-directory: .
+          name: libmpeg-with-so-ubuntu24
+          path: upload/
+
