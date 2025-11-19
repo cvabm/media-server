@@ -27,7 +27,32 @@ jobs:
       - name: Make
         run: make
         working-directory: media-server
-        
+
+      - name: Build static + shared library
+        run: |
+          cd media-server/libmpeg
+          make clean
+          make -j$(nproc)           # 先编译静态库（默认）
+          make shared=1 -j$(nproc)  # 再强制编译动态库
+
+      - name: List all generated libraries
+        run: |
+          echo "=== 最终生成的库文件 ==="
+          find media-server/libmpeg -name "libmpeg.*" | sort
+          echo ""
+          echo "详细大小："
+          ls -lh media-server/libmpeg/debug.ubuntu24.04-linux64/libmpeg.*
+          
+          # 可选：上传方便下载
+          mkdir -p artifacts
+          cp media-server/libmpeg/debug.ubuntu24.04-linux64/libmpeg.* artifacts/ || true
+
+      - name: Upload libraries as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpeg-libraries
+          path: artifacts/
+          
       - name: List generated files（推荐方式）
         run: |
           echo "=== 当前工作目录结构 ==="
