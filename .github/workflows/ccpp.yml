@@ -1,107 +1,42 @@
-name: Build libmpeg.so (Android)
+name: C/C++ CI
 
-on:
-  push:
-    paths:
-      - 'libmpeg/**'
-      - '.github/workflows/ccpp.yml'
-  pull_request:
-    paths:
-      - 'libmpeg/**'
-      - '.github/workflows/ccpp.yml'
+on: [push]
 
 jobs:
-  build-libmpeg-so:
+  build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        abi: [armeabi-v7a, arm64-v8a]   # 可根据需要加 x86, x86_64
-        # android-api: [21, 24]         # 可选：不同 API 级别
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # 1. 安装 NDK（关键！）
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: ndk
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
-          ndk-version: r25c           # 稳定版越新越好，r25c 兼容性极佳
-          add-to-path: true
+          path: media-server
 
-      # 2. 关键一步：修改 libmpeg 的 Android.mk，强制生成 .so
-      - name: Patch libmpeg to build SHARED library
-        run: |
-          sed -i 's/include $(BUILD_STATIC_LIBRARY)/include $(BUILD_SHARED_LIBRARY)/' libmpeg/Android.mk
-          echo "已将 libmpeg 改为生成 libmpeg.so (动态库)"
-
-      # 3. 只编译 libmpeg 子模块（不编译整个项目）
-      - name: Build libmpeg.so for ${{ matrix.abi }}
-        env:
-          NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
-        run: |
-          cd libmpeg
-          
-          # 创建临时 Application.mk 指定 ABI
-          cat > Application.mk << 'EOF'
-          APP_ABI := ${{ matrix.abi }}
-          APP_PLATFORM := android-21
-          APP_STL := c++_static
-          APP_CPPFLAGS += -frtti -fexceptions
-          EOF
-
-          # 执行编译
-          ndk-build clean
-          ndk-build V=1 -j$(nproc)
-
-          # 检查是否成功生成
-          echo "=== 生成的文件列表 ==="
-          find obj/local/${{ matrix.abi }} -name "*.so" | tee ../libmpeg-so-path.txt
-          ls -la obj/local/${{ matrix.abi }}/
-
-      # 4. 上传生成的 libmpeg.so
-      - name: Upload libmpeg.so
-        uses: actions/upload-artifact@v4
+      - name: Sdk
+        uses: actions/checkout@v2
         with:
-          name: libmpeg.so-${{ matrix.abi }}-${{ github.sha }}
-          path: |
-            libmpeg/obj/local/${{ matrix.abi }}/libmpeg.so
-          retention-days: 30
+          repository: ireader/sdk
+          path: sdk
+          
+      - name: avcodec
+        uses: actions/checkout@v2
+        with:
+          repository: ireader/avcodec
+          path: avcodec
 
-      # 5. （可选）打包成 aar 方便直接拖进 Android 项目
-      - name: Package as AAR
+      - name: Make
+        run: make
+        working-directory: media-server
+        
+      - name: List generated files（推荐方式）
         run: |
-          mkdir -p aar-build/jni/${{ matrix.abi }}
-          cp libmpeg/obj/local/${{ matrix.abi }}/libmpeg.so aar-build/jni/${{ matrix.abi }}/
-          cp -r libmpeg/include aar-build/
+          echo "=== 当前工作目录结构 ==="
+          pwd
+          ls -R
           
-          cd aar-build
-          cat > AndroidManifest.xml << 'EOF'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.ireader.libmpeg">
-          </manifest>
-          EOF
+          echo "=== 只看 libmpeg 目录下的所有文件（包含子目录）==="
+          find media-server/libmpeg -type f -print | sort
           
-          cat > build.gradle << 'EOF'
-          apply plugin: 'com.android.library'
-          
-          android {
-              compileSdkVersion 34
-              defaultConfig {
-                  minSdkVersion 21
-                  targetSdkVersion 34
-              }
-          }
-          EOF
-          
-          zip -r ../libmpeg-${{ matrix.abi }}.aar *
+          echo "=== 只看编译生成的 .a/.so/.o 文件 ==="
+          find media-server -name "*.a" -o -name "*.so" -o -name "*.o" | sort
         working-directory: .
-
-      - name: Upload AAR (optional)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: libmpeg-aar-${{ github.sha }}
-          path: libmpeg-*.aar
-          retention-days: 90
