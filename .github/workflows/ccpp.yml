@@ -1,33 +1,75 @@
 name: C/C++ CI
 
-on: [push]
+# 触发条件：push 到任意分支 或者 打开/同步 pull request 时都触发
+on:
+  push:
+    branches: [ '**' ]          # 所有分支
+    # paths:                     # （可选）只关心源码改动才触发，可大幅省 CI 时间
+    #   - 'media-server/**'
+    #   - '**.c'
+    #   - '**.cpp'
+    #   - '**.h'
+    #   - 'Makefile'
+  pull_request:
+    branches: [ '**' ]
+    types: [ opened, synchronize, reopened ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 可选：给大项目加并发控制，防止同一时间跑太多浪费分钟数
+    # concurrency:
+    #   group: ${{ github.workflow }}-${{ github.ref }}
+    #   cancel-in-progress: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      # 1. 拉取主项目（媒体服务器源码）
+      - name: Checkout media-server
+        uses: actions/checkout@v4
         with:
           path: media-server
 
-      - name: Sdk
-        uses: actions/checkout@v2
+      # 2. 拉取私有/组织内 sdk（核心 mpeg 解析库）
+      - name: Checkout ireader/sdk
+        uses: actions/checkout@v4
         with:
           repository: ireader/sdk
           path: sdk
-          
-      - name: avcodec
-        uses: actions/checkout@v2
+          # 如果 sdk 是私有仓库，需要在这里加 token
+          # token: ${{ secrets.SDK_TOKEN }}
+
+      # 3. 拉取 avcodec
+      - name: Checkout ireader/avcodec
+        uses: actions/checkout@v4
         with:
           repository: ireader/avcodec
           path: avcodec
+          # token: ${{ secrets.AVCODEC_TOKEN }}
 
-      - name: Make
-        run: make
+      # 4. 安装编译依赖（Ubuntu 自带 gcc/make，大部分项目够用）
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev
+
+      # 5. 编译
+      - name: Build
+        run: make -j$(nproc)          # 并行编译，提速明显
         working-directory: media-server
 
-#      - name: Make check
-#        run: make test
-#        working-directory: media-server
+      # （可选）编译成功后跑单元测试
+      # - name: Unit Test
+      #   run: make test
+      #   working-directory: media-server
+
+      # （可选）编译产物上传，方便手动下载调试
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-server-binaries
+          path: |
+            media-server/*.so
+            media-server/*.a
+            media-server/media-server   # 如果生成了可执行文件
+          retention-days: 7
